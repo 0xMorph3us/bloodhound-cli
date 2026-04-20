@@ -138,6 +138,16 @@ func ParseBloodHoundEnvironmentVariables() {
 		}
 	}
 	WriteBloodHoundEnvironmentVariables()
+
+	// Export the absolute path to the CLI-managed JSON so `docker compose` (invoked from any
+	// working directory) can bind-mount the same file the CLI reads and writes. The compose
+	// file references ${BH_CONFIG_FILE:-./bloodhound.config.json}; without this export the
+	// relative fallback would resolve to the compose file's directory and diverge from
+	// CLI-authored state (password rotations, etc.).
+	configJSON := filepath.Join(GetBloodHoundDir(), "bloodhound.config.json")
+	if envErr := os.Setenv("BH_CONFIG_FILE", configJSON); envErr != nil {
+		log.Fatalf("Error exporting BH_CONFIG_FILE=%s: %v", configJSON, envErr)
+	}
 }
 
 // GetConfigAll retrieves all values from the JSON config configuration file.

@@ -93,9 +93,13 @@ services:
       ### Default to localhost to prevent accidental publishing of the service to your outer networks
       ### These can be modified by your .env file or by setting the environment variables in your Docker host OS
       - ${BLOODHOUND_HOST:-127.0.0.1}:${BLOODHOUND_PORT:-8080}:8080
-    ### Uncomment to use your own bloodhound.config.json to configure the application
+    ### Mount the CLI-managed bloodhound.config.json (admin principal, bind_addr, log_level,
+    ### tls paths, etc.) into the server. bloodhound-cli sets BH_CONFIG_FILE to the absolute
+    ### path in ~/.config/bloodhound/bloodhound.config.json on every invocation; the ./fallback
+    ### only matters if you run `docker compose` manually — in that case, export BH_CONFIG_FILE
+    ### yourself or drop a bloodhound.config.json next to this compose file.
     volumes:
-      - ./bloodhound.config.json:/bloodhound.config.json:ro
+      - ${BH_CONFIG_FILE:-./bloodhound.config.json}:/bloodhound.config.json:ro
     depends_on:
       app-db:
         condition: service_healthy

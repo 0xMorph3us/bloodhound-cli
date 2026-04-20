@@ -26,10 +26,74 @@ var (
 	// URLs for the BloodHound compose files
 	devYaml  = "docker-compose.dev.yml"
 	prodYaml = "docker-compose.yml"
-	devUrl   = "https://raw.githubusercontent.com/SpecterOps/BloodHound_CLI/refs/heads/main/docker-compose.dev.yml"
-	prodUrl  = "https://raw.githubusercontent.com/SpecterOps/BloodHound_CLI/refs/heads/main/docker-compose.yml"
+	devUrl   = "https://raw.githubusercontent.com/SpecterOps/bloodhound-cli/refs/heads/main/docker-compose.dev.yml"
+	prodUrl  = "https://raw.githubusercontent.com/SpecterOps/bloodhound-cli/refs/heads/main/docker-compose.yml"
 	loginUri = "/ui/login"
 )
+
+func getTemplateDir() string {
+	return filepath.Join(GetBloodHoundDir(), "template")
+}
+
+func copyFile(src string, dst string) {
+	content, readErr := os.ReadFile(src)
+	if readErr != nil {
+		log.Fatalf("Error trying to read %s: %v\n", src, readErr)
+	}
+	writeErr := os.WriteFile(dst, content, 0644)
+	if writeErr != nil {
+		log.Fatalf("Error trying to write %s: %v\n", dst, writeErr)
+	}
+}
+
+// ensureTemplateFile returns a template file path under the configured template directory.
+// Priority order:
+// 1. Existing template in config_directory/template (user-managed)
+// 2. Template next to the bloodhound-cli binary
+// 3. Remote fallback download
+func ensureTemplateFile(filename string, remoteURL string) string {
+	templateDir := getTemplateDir()
+	mkErr := os.MkdirAll(templateDir, 0755)
+	if mkErr != nil {
+		log.Fatalf("Error trying to create template directory %s: %v\n", templateDir, mkErr)
+	}
+
+	templatePath := filepath.Join(templateDir, filename)
+	if FileExists(templatePath) {
+		return templatePath
+	}
+
+	exeTemplatePath := filepath.Join(GetCwdFromExe(), filename)
+	if FileExists(exeTemplatePath) {
+		copyFile(exeTemplatePath, templatePath)
+		fmt.Printf("[+] Installed local YAML template to %s\n", templatePath)
+		return templatePath
+	}
+
+	fmt.Printf("[+] Downloading YAML template from %s...\n", remoteURL)
+	downloadErr := DownloadFile(remoteURL, templatePath)
+	if downloadErr != nil {
+		log.Fatalf("Error trying to download template file %s: %v\n", filename, downloadErr)
+	}
+	fmt.Printf("[+] Installed downloaded YAML template to %s\n", templatePath)
+	return templatePath
+}
+
+func syncComposeFromTemplate(filename string, remoteURL string, force bool, promptLabel string) {
+	templatePath := ensureTemplateFile(filename, remoteURL)
+	dst := filepath.Join(GetBloodHoundDir(), filename)
+
+	shouldWrite := force || !FileExists(dst)
+	if !shouldWrite {
+		c := AskForConfirmation(promptLabel)
+		shouldWrite = c
+	}
+
+	if shouldWrite {
+		copyFile(templatePath, dst)
+		fmt.Printf("[+] Synced %s from template %s\n", dst, templatePath)
+	}
+}
 
 // Container is a custom type for storing container information similar to output from "docker containers ls".
 type Container struct {
@@ -100,51 +164,33 @@ func EvaluateDockerComposeStatus() {
 
 // DownloadDockerComposeFiles downloads the production and development Docker Compose YAML files into the BloodHound directory.
 // If either file already exists, prompts the user for confirmation before overwriting. Exits fatally on download failure.
-func DownloadDockerComposeFiles() {
-	workingDir := GetBloodHoundDir()
-	downloadProd := true
-	downloadDev := true
-	if FileExists(filepath.Join(workingDir, prodYaml)) {
-		c := AskForConfirmation("[*] A production YAML file already exists in the current directory. Do you want to overwrite it?")
-		if !c {
-			downloadProd = false
-		}
-	}
-	if downloadProd {
-		fmt.Printf("[+] Downloading the production YAML file from %s...\n", prodUrl)
-		prodDownloadErr := DownloadFile(prodUrl, filepath.Join(workingDir, prodYaml))
-		if prodDownloadErr != nil {
-			log.Fatalf("Error trying to download the production YAML file: %v\n", prodDownloadErr)
-		}
-	}
-
-	if FileExists(filepath.Join(workingDir, devYaml)) {
-		c := AskForConfirmation("[*] A development YAML file already exists in the current directory. Do you want to overwrite it?")
-		if !c {
-			downloadDev = false
-		}
-	}
-	if downloadDev {
-		fmt.Printf("[+] Downloading the development YAML file from %s...\n", devUrl)
-		devDownloadErr := DownloadFile(devUrl, filepath.Join(workingDir, devYaml))
-		if devDownloadErr != nil {
-			log.Fatalf("Error trying to download the development YAML file: %v\n", devDownloadErr)
-		}
-	}
+func DownloadDockerComposeFiles(force bool) {
+	syncComposeFromTemplate(
+		prodYaml,
+		prodUrl,
+		force,
+		"[*] A production YAML file already exists in the current directory. Do you want to overwrite it?",
+	)
+	syncComposeFromTemplate(
+		devYaml,
+		devUrl,
+		force,
+		"[*] A development YAML file already exists in the current directory. Do you want to overwrite it?",
+	)
 }
 
 // EvaluateEnvironment checks for the presence of Docker YAML files and initiates their download if necessary.
 func EvaluateEnvironment() {
 	fmt.Println("[+] Checking for the Docker YAML files...")
-	DownloadDockerComposeFiles()
+	DownloadDockerComposeFiles(false)
 }
 
 // RunDockerComposeInstall performs a first-time installation of BloodHound containers using the specified Docker Compose YAML file.
 // It ensures required YAML files are present, pulls container images, and starts the environment in detached mode.
 // Prints login credentials and UI access information upon successful setup. Exits fatally on errors.
 func RunDockerComposeInstall(yaml string) {
-	// If the YAML files don't exist, download them from the BloodHound repo
-	DownloadDockerComposeFiles()
+	// Always sync active compose files from template during install so template edits are applied.
+	DownloadDockerComposeFiles(true)
 
 	CheckYamlExists(yaml)
 	buildErr := RunCmd(dockerCmd, []string{"-f", yaml, "pull"})

@@ -27,3 +27,10 @@ go build -ldflags="-s -w -X 'github.com/SpecterOps/BloodHound_CLI/cmd/config.Ver
 ```
 
 The version for rolling releases is set to `rolling`.
+
+You can also use the Makefile:
+
+```bash
+make install   # download Go dependencies
+make           # build bloodhound-cli
+```

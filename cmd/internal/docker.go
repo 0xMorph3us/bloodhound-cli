@@ -26,8 +26,6 @@ var (
 	// URLs for the BloodHound compose files
 	devYaml  = "docker-compose.dev.yml"
 	prodYaml = "docker-compose.yml"
-	devUrl   = "https://raw.githubusercontent.com/SpecterOps/bloodhound-cli/refs/heads/main/docker-compose.dev.yml"
-	prodUrl  = "https://raw.githubusercontent.com/SpecterOps/bloodhound-cli/refs/heads/main/docker-compose.yml"
 	loginUri = "/ui/login"
 )
 
@@ -50,8 +48,7 @@ func copyFile(src string, dst string) {
 // Priority order:
 // 1. Existing template in config_directory/template (user-managed)
 // 2. Template next to the bloodhound-cli binary
-// 3. Remote fallback download
-func ensureTemplateFile(filename string, remoteURL string) string {
+func ensureTemplateFile(filename string) string {
 	templateDir := getTemplateDir()
 	mkErr := os.MkdirAll(templateDir, 0755)
 	if mkErr != nil {
@@ -70,17 +67,16 @@ func ensureTemplateFile(filename string, remoteURL string) string {
 		return templatePath
 	}
 
-	fmt.Printf("[+] Downloading YAML template from %s...\n", remoteURL)
-	downloadErr := DownloadFile(remoteURL, templatePath)
-	if downloadErr != nil {
-		log.Fatalf("Error trying to download template file %s: %v\n", filename, downloadErr)
-	}
-	fmt.Printf("[+] Installed downloaded YAML template to %s\n", templatePath)
-	return templatePath
+	log.Fatalf(
+		"Missing template file %s. Please place it in %s or next to the bloodhound-cli binary.",
+		filename,
+		templateDir,
+	)
+	return ""
 }
 
-func syncComposeFromTemplate(filename string, remoteURL string, force bool, promptLabel string) {
-	templatePath := ensureTemplateFile(filename, remoteURL)
+func syncComposeFromTemplate(filename string, force bool, promptLabel string) {
+	templatePath := ensureTemplateFile(filename)
 	dst := filepath.Join(GetBloodHoundDir(), filename)
 
 	shouldWrite := force || !FileExists(dst)
@@ -167,13 +163,11 @@ func EvaluateDockerComposeStatus() {
 func DownloadDockerComposeFiles(force bool) {
 	syncComposeFromTemplate(
 		prodYaml,
-		prodUrl,
 		force,
 		"[*] A production YAML file already exists in the current directory. Do you want to overwrite it?",
 	)
 	syncComposeFromTemplate(
 		devYaml,
-		devUrl,
 		force,
 		"[*] A development YAML file already exists in the current directory. Do you want to overwrite it?",
 	)

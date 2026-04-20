@@ -2,8 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/SpecterOps/BloodHound_CLI/cmd/config"
-	utils "github.com/SpecterOps/BloodHound_CLI/cmd/internal"
+	"github.com/0xMorph3us/bloodhound-cli/cmd/config"
 	"github.com/spf13/cobra"
 	"os"
 	"text/tabwriter"
@@ -13,8 +12,7 @@ import (
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Displays BloodHound CLI's version information",
-	Long: `Displays BloodHound CLI's version information. The local version information comes from the current binary.
-The latest release information is pulled from GitHub's API`,
+	Long: `Displays BloodHound CLI's local version information from the current binary.`,
 	RunE: compareCliVersions,
 }
 
@@ -23,8 +21,8 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 }
 
-// compareCliVersions collects BloodHound CLI's local and latest stable release version numbers and build dates and then
-// prints them to standard output.
+// compareCliVersions prints BloodHound CLI local version numbers and build dates from
+// the current binary without calling remote release APIs.
 func compareCliVersions(cmd *cobra.Command, args []string) error {
 	// initialize tabwriter
 	writer := new(tabwriter.Writer)
@@ -33,7 +31,7 @@ func compareCliVersions(cmd *cobra.Command, args []string) error {
 
 	defer writer.Flush()
 
-	fmt.Println("[+] Fetching latest version information:")
+	fmt.Println("[+] Displaying local version information:")
 
 	if len(config.BuildDate) == 0 {
 		fmt.Fprintf(writer, "\nLocal Version\tBloodHound CLI %s", config.Version)
@@ -41,13 +39,7 @@ func compareCliVersions(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(writer, "\nLocal Version\tBloodHound CLI %s (%s)", config.Version, config.BuildDate)
 	}
 
-	remoteVersion, htmlUrl, remoteErr := utils.GetRemoteBloodHoundCliVersion()
-	if remoteErr != nil {
-		return remoteErr
-	}
-
-	fmt.Fprintf(writer, "\nLatest Release\t%s\n", remoteVersion)
-	fmt.Fprintf(writer, "Latest Download URL\t%s\n", htmlUrl)
+	fmt.Fprintf(writer, "\nUpdate Method\tBuild from source (`git pull && make`)\n")
 
 	return nil
 }

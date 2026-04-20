@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 BINARY_NAME ?= bloodhound-cli
 GO ?= go
-MODULE_PATH := $(shell $(GO) list -m 2>/dev/null || echo github.com/SpecterOps/BloodHound_CLI)
+MODULE_PATH := $(shell sed -n 's/^module //p' go.mod | head -n 1)
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo rolling)
 BUILD_DATE ?= $(shell date -u '+%d %b %Y')
 
@@ -10,7 +10,7 @@ LDFLAGS := -s -w \
 	-X '$(MODULE_PATH)/cmd/config.Version=$(VERSION)' \
 	-X '$(MODULE_PATH)/cmd/config.BuildDate=$(BUILD_DATE)'
 
-.PHONY: all install deps build test clean
+.PHONY: all install deps build test clean print-ldflags
 
 all: build
 
@@ -35,3 +35,6 @@ test: check-go
 
 clean:
 	rm -f $(BINARY_NAME)
+
+print-ldflags:
+	@echo $(LDFLAGS)

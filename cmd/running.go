@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	docker "github.com/SpecterOps/BloodHound_CLI/cmd/internal"
+	docker "github.com/0xMorph3us/bloodhound-cli/cmd/internal"
 	"github.com/spf13/cobra"
 )
 

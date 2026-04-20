@@ -23,7 +23,7 @@ More information about BloodHound and how to manage it with `bloodhound-cli` can
 Releases are compiled with the following command to set version and build date information:
 
 ```bash
-go build -ldflags="-s -w -X 'github.com/SpecterOps/BloodHound_CLI/cmd/config.Version=`git describe --tags --abbrev=0`' -X 'github.com/SpecterOps/BloodHound_CLI/cmd/config.BuildDate=`date -u '+%d %b %Y'`'" -o bloodhound-cli main.go
+make
 ```
 
 The version for rolling releases is set to `rolling`.

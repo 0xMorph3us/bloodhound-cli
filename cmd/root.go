@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	env "github.com/SpecterOps/BloodHound_CLI/cmd/internal"
+	env "github.com/0xMorph3us/bloodhound-cli/cmd/internal"
 	"github.com/spf13/cobra"
 	"os"
 )

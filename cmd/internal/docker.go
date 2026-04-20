@@ -44,11 +44,31 @@ func copyFile(src string, dst string) {
 	}
 }
 
+// InstallGDSPluginFile copies a local GDS plugin jar into the config directory's
+// plugins path so Docker Compose can mount it at /plugins/graph-data-science.jar.
+func InstallGDSPluginFile(src string) string {
+	if !FileExists(src) {
+		log.Fatalf("GDS plugin file does not exist: %s", src)
+	}
+
+	pluginsDir := filepath.Join(GetBloodHoundDir(), "plugins")
+	mkErr := os.MkdirAll(pluginsDir, 0755)
+	if mkErr != nil {
+		log.Fatalf("Error creating plugins directory %s: %v", pluginsDir, mkErr)
+	}
+
+	dst := filepath.Join(pluginsDir, "graph-data-science.jar")
+	copyFile(src, dst)
+	fmt.Printf("[+] Installed GDS plugin jar to %s\n", dst)
+	return dst
+}
+
 // ensureTemplateFile returns a template file path under the configured template directory.
 // Priority order:
-// 1. Existing template in config_directory/template (user-managed)
-// 2. Template next to the bloodhound-cli binary
-func ensureTemplateFile(filename string) string {
+// 1. Template next to the bloodhound-cli binary (when refreshFromExecutable is true)
+// 2. Existing template in config_directory/template (user-managed)
+// 3. Template next to the bloodhound-cli binary
+func ensureTemplateFile(filename string, refreshFromExecutable bool) string {
 	templateDir := getTemplateDir()
 	mkErr := os.MkdirAll(templateDir, 0755)
 	if mkErr != nil {
@@ -56,11 +76,17 @@ func ensureTemplateFile(filename string) string {
 	}
 
 	templatePath := filepath.Join(templateDir, filename)
+	exeTemplatePath := filepath.Join(GetCwdFromExe(), filename)
+	if refreshFromExecutable && FileExists(exeTemplatePath) {
+		copyFile(exeTemplatePath, templatePath)
+		fmt.Printf("[+] Refreshed YAML template from %s\n", exeTemplatePath)
+		return templatePath
+	}
+
 	if FileExists(templatePath) {
 		return templatePath
 	}
 
-	exeTemplatePath := filepath.Join(GetCwdFromExe(), filename)
 	if FileExists(exeTemplatePath) {
 		copyFile(exeTemplatePath, templatePath)
 		fmt.Printf("[+] Installed local YAML template to %s\n", templatePath)
@@ -75,8 +101,8 @@ func ensureTemplateFile(filename string) string {
 	return ""
 }
 
-func syncComposeFromTemplate(filename string, force bool, promptLabel string) {
-	templatePath := ensureTemplateFile(filename)
+func syncComposeFromTemplate(filename string, force bool, refreshTemplate bool, promptLabel string) {
+	templatePath := ensureTemplateFile(filename, refreshTemplate)
 	dst := filepath.Join(GetBloodHoundDir(), filename)
 
 	shouldWrite := force || !FileExists(dst)
@@ -160,15 +186,17 @@ func EvaluateDockerComposeStatus() {
 
 // DownloadDockerComposeFiles downloads the production and development Docker Compose YAML files into the BloodHound directory.
 // If either file already exists, prompts the user for confirmation before overwriting. Exits fatally on download failure.
-func DownloadDockerComposeFiles(force bool) {
+func DownloadDockerComposeFiles(force bool, refreshTemplate bool) {
 	syncComposeFromTemplate(
 		prodYaml,
 		force,
+		refreshTemplate,
 		"[*] A production YAML file already exists in the current directory. Do you want to overwrite it?",
 	)
 	syncComposeFromTemplate(
 		devYaml,
 		force,
+		refreshTemplate,
 		"[*] A development YAML file already exists in the current directory. Do you want to overwrite it?",
 	)
 }
@@ -176,7 +204,7 @@ func DownloadDockerComposeFiles(force bool) {
 // EvaluateEnvironment checks for the presence of Docker YAML files and initiates their download if necessary.
 func EvaluateEnvironment() {
 	fmt.Println("[+] Checking for the Docker YAML files...")
-	DownloadDockerComposeFiles(false)
+	DownloadDockerComposeFiles(false, false)
 }
 
 // RunDockerComposeInstall performs a first-time installation of BloodHound containers using the specified Docker Compose YAML file.
@@ -184,7 +212,7 @@ func EvaluateEnvironment() {
 // Prints login credentials and UI access information upon successful setup. Exits fatally on errors.
 func RunDockerComposeInstall(yaml string) {
 	// Always sync active compose files from template during install so template edits are applied.
-	DownloadDockerComposeFiles(true)
+	DownloadDockerComposeFiles(true, true)
 
 	CheckYamlExists(yaml)
 	buildErr := RunCmd(dockerCmd, []string{"-f", yaml, "pull"})

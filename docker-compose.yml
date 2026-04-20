@@ -43,14 +43,14 @@ services:
   graph-db:
     labels:
       name: "bhce_neo4j"
-    image: docker.io/library/neo4j:4.4
+    image: ${NEO4J_IMAGE:-docker.io/library/neo4j:latest}
     environment:
       - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_SECRET:-bloodhoundcommunityedition}
       - NEO4J_dbms_allow__upgrade=${NEO4J_ALLOW_UPGRADE:-true}
+      - NEO4J_dbms_usage__report_enabled=${NEO4J_dbms_usage__report_enabled:-false}
       - NEO4J_dbms_memory_heap_initial__size=${NEO4J_dbms_memory_heap_initial__size:-8G}
       - NEO4J_dbms_memory_heap_max__size=${NEO4J_dbms_memory_heap_max__size:-8G}
       - NEO4J_dbms_memory_pagecache_size=${NEO4J_dbms_memory_pagecache_size:-4G}
-      - NEO4J_dbms_memory_transaction_total_max=${NEO4J_dbms_memory_transaction_total_max:-2G}
       - NEO4J_PLUGINS=${NEO4J_PLUGINS:-["graph-data-science"]}
       - NEO4J_dbms_security_procedures_unrestricted=${NEO4J_dbms_security_procedures_unrestricted:-gds.*}
       - NEO4J_dbms_security_procedures_allowlist=${NEO4J_dbms_security_procedures_allowlist:-gds.*}
@@ -60,6 +60,7 @@ services:
       - 127.0.0.1:${NEO4J_WEB_PORT:-7474}:7474
     volumes:
       - ${NEO4J_DATA_MOUNT:-neo4j-data}:/data
+      - ./plugins:/plugins
     healthcheck:
       test:
         [

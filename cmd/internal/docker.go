@@ -44,81 +44,6 @@ func copyFile(src string, dst string) {
 	}
 }
 
-// Pinned GDS jar for the only currently-working BloodHound + Neo4j combo.
-// Neo4j 4.4.42 + GDS 2.6.8 + specterops/bloodhound:9.0.1.
-// Neo4j 5.x is not supported by BloodHound CE today (tracked upstream as BED-4145).
-const (
-	gdsJarVersion  = "2.6.8"
-	gdsJarURL      = "https://github.com/neo4j/graph-data-science/releases/download/2.6.8/neo4j-graph-data-science-2.6.8.jar"
-	gdsJarFilename = "graph-data-science.jar"
-	gdsJarMinBytes = 20 * 1024 * 1024
-)
-
-// pluginsDir returns the host-side plugins directory that docker-compose mounts to /plugins.
-// The compose file uses a relative path (./plugins) resolved against the compose working
-// directory, so the directory must live next to the docker-compose.yml.
-func pluginsDir() string {
-	return filepath.Join(GetBloodHoundDir(), "plugins")
-}
-
-// gdsJarPath returns the destination path for the GDS jar.
-func gdsJarPath() string {
-	return filepath.Join(pluginsDir(), gdsJarFilename)
-}
-
-// InstallGDSPluginFile copies a local GDS plugin jar into the config directory's
-// plugins path so Docker Compose can mount it at /plugins/graph-data-science.jar.
-func InstallGDSPluginFile(src string) string {
-	if !FileExists(src) {
-		log.Fatalf("GDS plugin file does not exist: %s", src)
-	}
-
-	mkErr := os.MkdirAll(pluginsDir(), 0755)
-	if mkErr != nil {
-		log.Fatalf("Error creating plugins directory %s: %v", pluginsDir(), mkErr)
-	}
-
-	dst := gdsJarPath()
-	copyFile(src, dst)
-	fmt.Printf("[+] Installed GDS plugin jar to %s\n", dst)
-	return dst
-}
-
-// EnsureGDSPlugin makes sure the pinned GDS jar exists in the plugins directory.
-// If a jar is already present and looks plausible (size sanity check), it is kept.
-// Otherwise, the pinned version is downloaded from the official Neo4j GitHub release.
-// Fatal on download failure so install doesn't silently start a broken graph-db.
-func EnsureGDSPlugin() {
-	mkErr := os.MkdirAll(pluginsDir(), 0755)
-	if mkErr != nil {
-		log.Fatalf("Error creating plugins directory %s: %v", pluginsDir(), mkErr)
-	}
-
-	dst := gdsJarPath()
-	if info, err := os.Stat(dst); err == nil && !info.IsDir() && info.Size() >= gdsJarMinBytes {
-		fmt.Printf("[+] GDS plugin jar already present at %s (%d bytes)\n", dst, info.Size())
-		return
-	}
-
-	fmt.Printf("[+] Downloading Neo4j Graph Data Science %s jar to %s\n", gdsJarVersion, dst)
-	fmt.Printf("    source: %s\n", gdsJarURL)
-	if err := DownloadFile(gdsJarURL, dst); err != nil {
-		log.Fatalf("Error downloading GDS jar from %s: %v", gdsJarURL, err)
-	}
-
-	info, statErr := os.Stat(dst)
-	if statErr != nil {
-		log.Fatalf("GDS jar download reported success but file is missing: %v", statErr)
-	}
-	if info.Size() < gdsJarMinBytes {
-		log.Fatalf(
-			"GDS jar download is suspiciously small (%d bytes, expected >= %d). "+
-				"The download likely failed or was rate-limited; delete %s and retry.",
-			info.Size(), gdsJarMinBytes, dst,
-		)
-	}
-	fmt.Printf("[+] Installed GDS plugin jar %s (%d bytes)\n", gdsJarVersion, info.Size())
-}
 
 // ensureTemplateFile returns a template file path under the configured template directory.
 // Priority order:
@@ -172,6 +97,29 @@ func syncComposeFromTemplate(filename string, force bool, refreshTemplate bool, 
 		copyFile(templatePath, dst)
 		fmt.Printf("[+] Synced %s from template %s\n", dst, templatePath)
 	}
+}
+
+// ensureNeo4jGDSDockerfile copies the Neo4j+GDS Dockerfile from the executable
+// directory into the configured data directory so copied compose files can build
+// graph-db without depending on repository-relative paths.
+func ensureNeo4jGDSDockerfile() {
+	const dockerSubdir = "docker"
+	const dockerfileName = "neo4j-gds.Dockerfile"
+
+	srcDir := filepath.Join(GetCwdFromExe(), dockerSubdir)
+	src := filepath.Join(srcDir, dockerfileName)
+	if !FileExists(src) {
+		log.Fatalf("Missing required Dockerfile for graph-db build: %s", src)
+	}
+
+	dstDir := filepath.Join(GetBloodHoundDir(), dockerSubdir)
+	if mkErr := os.MkdirAll(dstDir, 0755); mkErr != nil {
+		log.Fatalf("Error creating docker build directory %s: %v", dstDir, mkErr)
+	}
+
+	dst := filepath.Join(dstDir, dockerfileName)
+	copyFile(src, dst)
+	fmt.Printf("[+] Synced Neo4j GDS Dockerfile to %s\n", dst)
 }
 
 // Container is a custom type for storing container information similar to output from "docker containers ls".
@@ -270,15 +218,16 @@ func EvaluateEnvironment() {
 func RunDockerComposeInstall(yaml string) {
 	// Always sync active compose files from template during install so template edits are applied.
 	DownloadDockerComposeFiles(true, true)
-
-	// Neo4j 4.4 can't reach the GDS download host from many environments (403 on the jar URL),
-	// so ship the jar ourselves into ./plugins before bringing the stack up.
-	EnsureGDSPlugin()
+	ensureNeo4jGDSDockerfile()
 
 	CheckYamlExists(yaml)
-	buildErr := RunCmd(dockerCmd, []string{"-f", yaml, "pull"})
+	pullErr := RunCmd(dockerCmd, []string{"-f", yaml, "pull"})
+	if pullErr != nil {
+		log.Fatalf("Error trying to pull with %s: %v\n", yaml, pullErr)
+	}
+	buildErr := RunCmd(dockerCmd, []string{"-f", yaml, "build", "graph-db"})
 	if buildErr != nil {
-		log.Fatalf("Error trying to build with %s: %v\n", yaml, buildErr)
+		log.Fatalf("Error trying to build graph-db with %s: %v\n", yaml, buildErr)
 	}
 	upErr := RunCmd(dockerCmd, []string{"-f", yaml, "up", "-d"})
 	if upErr != nil {
@@ -315,7 +264,8 @@ func RunDockerComposeUninstall(yaml string) {
 
 	delErr := os.RemoveAll(configDir)
 	if delErr != nil {
-		log.Fatalf("Error trying to delete the config directory: %v\n", delErr)
+		fmt.Printf("[!] Could not fully delete the config directory due to permissions: %v\n", delErr)
+		fmt.Printf("[!] If needed, remove it manually with elevated privileges: sudo rm -rf %s\n", configDir)
 	} else {
 		fmt.Println("[+] Successfully deleted the BloodHound config directory!")
 	}

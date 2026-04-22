@@ -43,7 +43,12 @@ services:
   graph-db:
     labels:
       name: "bhce_neo4j"
-    image: ${NEO4J_IMAGE:-docker.io/library/neo4j:4.4.42}
+    build:
+      context: .
+      dockerfile: docker/neo4j-gds.Dockerfile
+      args:
+        NEO4J_BASE_IMAGE: ${NEO4J_IMAGE:-docker.io/library/neo4j:4.4.42}
+        GDS_VERSION: ${GDS_VERSION:-2.6.8}
     environment:
       - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_SECRET:-bloodhoundcommunityedition}
       - NEO4J_dbms_allow__upgrade=${NEO4J_ALLOW_UPGRADE:-true}
@@ -60,7 +65,6 @@ services:
       - 127.0.0.1:${NEO4J_WEB_PORT:-7474}:7474
     volumes:
       - ${NEO4J_DATA_MOUNT:-neo4j-data}:/data
-      - ./plugins:/plugins
     healthcheck:
       test:
         [
@@ -70,7 +74,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 90s
 
   bloodhound:
     labels:
